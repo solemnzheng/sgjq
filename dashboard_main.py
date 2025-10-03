@@ -11,6 +11,7 @@ from typing import Optional
 import cv2
 import numpy as np
 from sklearn.cluster import DBSCAN
+import json
 
 # --- AppState Class ---
 class AppState:
@@ -29,11 +30,14 @@ from game_analyzer import GameAnalyzer, DetectionResult, find_all_matches_with_c
 class DashboardApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("陆战棋-实时战情室 (固化分区版)")
+        self.root.title("陆战棋-实时战情室 (分区自动锁定版)")
         self.root.geometry("800x800")
         self.root.resizable(False, False)
         
         self.app_state = AppState()
+        self.regions_file = Path("data/regions.json")
+        self.is_recognizing = False
+        self.recognition_thread = None
 
         # --- UI Layout ---
         self.info_frame = ttk.Frame(root, height=600)
@@ -54,6 +58,7 @@ class DashboardApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_closing(self):
+        self.is_recognizing = False # Signal the thread to stop
         if self.app_state.hwnd and win32gui.IsWindow(self.app_state.hwnd):
             try:
                 win32gui.SetWindowPos(self.app_state.hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
@@ -66,25 +71,42 @@ class DashboardApp:
             self.app_state.game_analyzer = GameAnalyzer(templates_dir)
             self.log_to_dashboard("--- 战情室启动成功 ---")
             self.log_to_dashboard(f"已成功加载 {len(self.app_state.game_analyzer.templates_manager.get_all_templates())} 个棋子模板。")
-            self.log_to_dashboard("请先点击“1. 检测游戏窗口”。")
+            
+            # Auto-load regions if file exists
+            if self.regions_file.exists():
+                try:
+                    with open(self.regions_file, 'r') as f:
+                        self.app_state.locked_regions = json.load(f)
+                    self.log_to_dashboard("[信息] 已成功从文件加载锁定的分区数据。", "green")
+                except Exception as e:
+                    self.log_to_dashboard(f"[错误] 加载分区文件失败: {e}", "red")
+            else:
+                self.log_to_dashboard("[信息] 未找到分区数据文件。请点击“2. 开始识别”以在首次识别时自动生成。")
+                # Ensure data directory exists
+                self.regions_file.parent.mkdir(parents=True, exist_ok=True)
+
         except Exception as e:
             self.log_to_dashboard(f"[严重错误] 分析器初始化失败: {e}", "red")
 
     def setup_control_buttons(self):
         button_frame_1 = ttk.Frame(self.control_frame)
-        button_frame_1.pack(fill='x', expand=True, padx=20, pady=15)
+        button_frame_1.pack(fill='x', expand=True, padx=20, pady=10)
         button_frame_2 = ttk.Frame(self.control_frame)
-        button_frame_2.pack(fill='x', expand=True, padx=20, pady=15)
+        button_frame_2.pack(fill='x', expand=True, padx=20, pady=10)
+        button_frame_3 = ttk.Frame(self.control_frame)
+        button_frame_3.pack(fill='x', expand=True, padx=20, pady=10)
         
-        buttons_row1 = ["1. 检测游戏窗口", "2. 开始识别", "3. 锁定初始分区", "按钮4"]
-        buttons_row2 = ["5. 查看区域划分", "6. 显示检测区域", "7. 查看节点分布", "退出"]
+        buttons_row1 = ["1. 检测游戏窗口", "2. 开始识别", "3. 连续识别", "4. 停止识别"]
+        buttons_row2 = ["5. 查看区域划分", "6. 显示检测区域", "7. 查看节点分布", "按钮8"]
+        buttons_row3 = ["按钮9", "按钮10", "按钮11", "按钮12 (退出)"]
 
         for i, text in enumerate(buttons_row1):
             button = ttk.Button(button_frame_1, text=text)
             button.pack(side="left", fill="x", expand=True, padx=10)
             if i == 0: button.config(command=self.detect_game_window)
-            elif i == 1: button.config(command=lambda: self.start_recognition(0.7))
-            elif i == 2: button.config(command=self.lock_initial_regions)
+            elif i == 1: button.config(command=lambda: self.start_recognition(0.8))
+            elif i == 2: button.config(command=self.start_continuous_recognition)
+            elif i == 3: button.config(command=self.stop_continuous_recognition)
             
         for i, text in enumerate(buttons_row2):
             button = ttk.Button(button_frame_2, text=text)
@@ -92,7 +114,11 @@ class DashboardApp:
             if i == 0: button.config(command=self.visualize_regions)
             elif i == 1: button.config(command=self.visualize_plus_region)
             elif i == 2: button.config(command=self.visualize_all_nodes)
-            elif i == 3: button.config(command=self.on_closing)
+
+        for i, text in enumerate(buttons_row3):
+            button = ttk.Button(button_frame_3, text=text)
+            button.pack(side="left", fill="x", expand=True, padx=10)
+            if i == 3: button.config(command=self.on_closing)
 
     def log_to_dashboard(self, message: str, tag: str = None):
         self.info_text.config(state='normal')
@@ -134,6 +160,24 @@ class DashboardApp:
             self.log_to_dashboard("[错误] 获取截图失败。", "red")
             return
 
+        # --- Auto-lock regions on first run ---
+        if not self.app_state.locked_regions:
+            self.log_to_dashboard("[信息] 正在尝试自动锁定初始分区...")
+            try:
+                regions = self.app_state.game_analyzer.get_player_regions(screenshot)
+                if not regions or len(regions) < 5:
+                    self.log_to_dashboard("[警告] 未能计算出完整的5个区域，将在下次识别时重试。", "red")
+                else:
+                    self.app_state.locked_regions = regions
+                    # Convert numpy int types to standard python int for JSON serialization
+                    serializable_regions = {k: tuple(map(int, v)) for k, v in regions.items()}
+                    with open(self.regions_file, 'w') as f:
+                        json.dump(serializable_regions, f, indent=4)
+                    self.log_to_dashboard("[成功] 初始分区已自动锁定并保存！", "green")
+            except Exception as e:
+                self.log_to_dashboard(f"[严重错误] 自动锁定分区时出错: {e}", "red")
+        # -----------------------------------------
+
         # Create the directory if it doesn't exist
         save_dir = Path("pictures/temp")
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -152,34 +196,56 @@ class DashboardApp:
             self._force_set_topmost()
 
     def lock_initial_regions(self):
-        self.log_to_dashboard("\n--- 开始锁定初始分区 ---")
-        if not self.app_state.window_capture:
-            self.log_to_dashboard("[错误] 请先检测窗口。", "red")
+        # This button is now disabled and serves as a placeholder.
+        self.log_to_dashboard("[信息] 按钮3功能已停用。分区在首次“开始识别”时会自动锁定。")
+        pass
+
+    def start_continuous_recognition(self):
+        if self.is_recognizing:
+            self.log_to_dashboard("[警告] 连续识别已在运行中。", "red")
             return
         
-        screenshot = self.app_state.window_capture.get_screenshot()
-        if screenshot is None:
-            self.log_to_dashboard("[错误] 获取截图失败。", "red")
+        if not self.app_state.window_capture:
+            self.log_to_dashboard("[错误] 请先检测游戏窗口。", "red")
             return
 
-        try:
-            regions = self.app_state.game_analyzer.get_player_regions(screenshot)
-            if not regions or len(regions) < 5:
-                self.log_to_dashboard("[错误] 未能计算出完整的5个区域，请确保棋盘布局完整。", "red")
-                self.app_state.locked_regions = None
-                return
+        self.is_recognizing = True
+        self.recognition_thread = Thread(target=self._continuous_recognition_worker, daemon=True)
+        self.recognition_thread.start()
+        self.log_to_dashboard("--- 连续识别已启动 ---", "blue")
+
+    def stop_continuous_recognition(self):
+        if not self.is_recognizing:
+            self.log_to_dashboard("[信息] 连续识别尚未启动。")
+            return
             
-            self.app_state.locked_regions = regions
-            self.log_to_dashboard("[成功] 初始分区已成功锁定！", "green")
-        except Exception as e:
-            self.log_to_dashboard(f"[严重错误] 锁定分区时出错: {e}", "red")
-        finally:
-            self._force_set_topmost()
+        self.is_recognizing = False
+        # No need to join the thread here, it will exit on its own
+        self.log_to_dashboard("--- 连续识别已停止 ---", "blue")
+
+    def _continuous_recognition_worker(self):
+        while self.is_recognizing:
+            recognition_id = time.strftime("%Y%m%d%H%M%S")
+            
+            screenshot = self.app_state.window_capture.get_screenshot()
+            if screenshot is None:
+                self.root.after(0, self.log_to_dashboard, "[错误] (后台) 获取截图失败。", "red")
+                time.sleep(1)
+                continue
+
+            try:
+                report = self.app_state.game_analyzer.analyze_screenshot(screenshot, match_threshold=0.8)
+                # Safely update the GUI from the background thread
+                self.root.after(0, self.log_to_dashboard, f"--- {recognition_id} ---\n{report}")
+            except Exception as e:
+                self.root.after(0, self.log_to_dashboard, f"[严重错误] (后台) 分析时出错: {e}", "red")
+            
+            # time.sleep(1) # Removed for maximum speed
 
     def visualize_regions(self):
         self.log_to_dashboard("\n--- 生成已锁定的分区图 ---")
         if not self.app_state.locked_regions:
-            self.log_to_dashboard("[错误] 请先点击“3. 锁定初始分区”！", "red")
+            self.log_to_dashboard("[错误] 未找到分区数据。请先点击“2. 开始识别”来自动生成。", "red")
             return
         screenshot = self.app_state.window_capture.get_screenshot()
         if screenshot is None: return
@@ -200,7 +266,7 @@ class DashboardApp:
     def visualize_plus_region(self):
         self.log_to_dashboard("\n--- 生成基于锁定区域的“+”号 ---")
         if not self.app_state.locked_regions:
-            self.log_to_dashboard("[错误] 请先点击“3. 锁定初始分区”！", "red")
+            self.log_to_dashboard("[错误] 未找到分区数据。请先点击“2. 开始识别”来自动生成。", "red")
             return
         screenshot = self.app_state.window_capture.get_screenshot()
         if screenshot is None: return
@@ -231,7 +297,7 @@ class DashboardApp:
     def visualize_all_nodes(self):
         self.log_to_dashboard("\n--- 生成全节点分布图 ---")
         if not self.app_state.locked_regions:
-            self.log_to_dashboard("[错误] 请先点击“3. 锁定初始分区”！", "red")
+            self.log_to_dashboard("[错误] 未找到分区数据。请先点击“2. 开始识别”来自动生成。", "red")
             return
         screenshot = self.app_state.window_capture.get_screenshot()
         if screenshot is None: return
