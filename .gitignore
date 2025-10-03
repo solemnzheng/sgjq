@@ -139,3 +139,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Project-specific files to ignore
+error.txt
+commit_message.txt
