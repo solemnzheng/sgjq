@@ -139,8 +139,3 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
-
-# Screen captures
-*.png
-*.jpg
-*.jpeg
