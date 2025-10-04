@@ -22,6 +22,7 @@ class Template:
     image: np.ndarray
     shape: Tuple[int, int]
     filename: str
+    orientation: str = "horizontal"  # 默认方向
 
 class TemplatesManager:
     """
@@ -100,7 +101,8 @@ class TemplatesManager:
                     index=parsed_info['index'],
                     image=image,
                     shape=(w, h),
-                    filename=file_path.name
+                    filename=file_path.name,
+                    orientation=parsed_info['position']  # 使用position作为orientation
                 )
                 self.templates[name] = template
 
