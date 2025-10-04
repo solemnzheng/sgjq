@@ -92,16 +92,51 @@ class DashboardApp:
         self.button3 = None
         self.button4 = None
 
+        # 阈值变量
+        self.match_threshold = 0.8
+        self.nms_threshold = 0.3
+
         self.piece_tracker = PieceTracker()
         self.logic_engine = GameLogicEngine()
         self.prev_state: Optional[BoardState] = None
         self.curr_state: Optional[BoardState] = None
 
         # ... (UI Layout and Tag Config remains the same)
+        # 创建阈值调节框架
+        self.threshold_frame = ttk.Frame(root, height=40)
+        self.threshold_frame.pack(fill="x", padx=10, pady=5)
+        self.threshold_frame.pack_propagate(False)
+
+        # 匹配阈值调节组件
+        match_frame = ttk.Frame(self.threshold_frame)
+        match_frame.pack(side="left", padx=10)
+        ttk.Label(match_frame, text="匹配阈值:").pack(side="left")
+        self.match_threshold_var = tk.StringVar(value="0.8")
+        self.match_threshold_entry = ttk.Entry(match_frame, textvariable=self.match_threshold_var, width=5, state="readonly")
+        self.match_threshold_entry.pack(side="left", padx=5)
+
+        match_btn_frame = ttk.Frame(match_frame)
+        match_btn_frame.pack(side="left")
+        ttk.Button(match_btn_frame, text="▲", width=2, command=self.increase_match_threshold).pack(side="left", pady=0, padx=0, ipady=2)
+        ttk.Button(match_btn_frame, text="▼", width=2, command=self.decrease_match_threshold).pack(side="left", pady=0, padx=0, ipady=2)
+
+        # NMS阈值调节组件
+        nms_frame = ttk.Frame(self.threshold_frame)
+        nms_frame.pack(side="left", padx=10)
+        ttk.Label(nms_frame, text="NMS阈值:").pack(side="left")
+        self.nms_threshold_var = tk.StringVar(value="0.3")
+        self.nms_threshold_entry = ttk.Entry(nms_frame, textvariable=self.nms_threshold_var, width=5, state="readonly")
+        self.nms_threshold_entry.pack(side="left", padx=5)
+
+        nms_btn_frame = ttk.Frame(nms_frame)
+        nms_btn_frame.pack(side="left")
+        ttk.Button(nms_btn_frame, text="▲", width=2, command=self.increase_nms_threshold).pack(side="left", pady=0, padx=0, ipady=2)
+        ttk.Button(nms_btn_frame, text="▼", width=2, command=self.decrease_nms_threshold).pack(side="left", pady=0, padx=0, ipady=2)
+
         self.info_frame = ttk.Frame(root, height=650)
         self.info_frame.pack(fill="both", expand=True)
         self.info_frame.pack_propagate(False)
-        self.control_frame = ttk.Frame(root, height=150)
+        self.control_frame = ttk.Frame(root, height=110)
         self.control_frame.pack(fill="x")
         self.control_frame.pack_propagate(False)
         self.info_text = scrolledtext.ScrolledText(self.info_frame, wrap=tk.WORD, state='disabled', font=("Microsoft YaHei", 10), bg="#F0F0F0", fg="black")
@@ -121,9 +156,49 @@ class DashboardApp:
         self.info_text.tag_config("h_orange", foreground="orange", font=("Microsoft YaHei", 11, "bold"))
         self.info_text.tag_config("h_purple", foreground="purple", font=("Microsoft YaHei", 11, "bold"))
 
+        # 添加清空信息的方法
+        self.clear_info_button = ttk.Button(self.threshold_frame, text="清空信息", command=self.clear_info_panel)
+        self.clear_info_button.pack(side="right", padx=10)
+
         self.setup_control_buttons()
         self.initialize_analyzer()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def increase_match_threshold(self):
+        """增加匹配阈值"""
+        current = float(self.match_threshold_var.get())
+        if current < 0.9:
+            new_value = round(current + 0.1, 1)
+            self.match_threshold_var.set(f"{new_value:.1f}")
+            self.match_threshold = new_value
+            self.log_message(f"[信息] 匹配阈值已调整为: {new_value:.1f}", "h_default")
+
+    def decrease_match_threshold(self):
+        """减少匹配阈值"""
+        current = float(self.match_threshold_var.get())
+        if current > 0.5:
+            new_value = round(current - 0.1, 1)
+            self.match_threshold_var.set(f"{new_value:.1f}")
+            self.match_threshold = new_value
+            self.log_message(f"[信息] 匹配阈值已调整为: {new_value:.1f}", "h_default")
+
+    def increase_nms_threshold(self):
+        """增加NMS阈值"""
+        current = float(self.nms_threshold_var.get())
+        if current < 0.9:
+            new_value = round(current + 0.1, 1)
+            self.nms_threshold_var.set(f"{new_value:.1f}")
+            self.nms_threshold = new_value
+            self.log_message(f"[信息] NMS阈值已调整为: {new_value:.1f}", "h_default")
+
+    def decrease_nms_threshold(self):
+        """减少NMS阈值"""
+        current = float(self.nms_threshold_var.get())
+        if current > 0.1:
+            new_value = round(current - 0.1, 1)
+            self.nms_threshold_var.set(f"{new_value:.1f}")
+            self.nms_threshold = new_value
+            self.log_message(f"[信息] NMS阈值已调整为: {new_value:.1f}", "h_default")
 
     def on_closing(self):
         self.is_recognizing = False
@@ -160,12 +235,15 @@ class DashboardApp:
 
     def setup_control_buttons(self):
         # ... (This function is now complete and correct)
-        button_frame_1 = ttk.Frame(self.control_frame)
-        button_frame_1.pack(fill='x', expand=True, padx=20, pady=5)
-        button_frame_2 = ttk.Frame(self.control_frame)
-        button_frame_2.pack(fill='x', expand=True, padx=20, pady=5)
-        button_frame_3 = ttk.Frame(self.control_frame)
-        button_frame_3.pack(fill='x', expand=True, padx=20, pady=5)
+        button_frame_1 = ttk.Frame(self.control_frame, height=25)
+        button_frame_1.pack(fill='x', expand=True, padx=20, pady=1)
+        button_frame_1.pack_propagate(False)
+        button_frame_2 = ttk.Frame(self.control_frame, height=25)
+        button_frame_2.pack(fill='x', expand=True, padx=20, pady=1)
+        button_frame_2.pack_propagate(False)
+        button_frame_3 = ttk.Frame(self.control_frame, height=25)
+        button_frame_3.pack(fill='x', expand=True, padx=20, pady=1)
+        button_frame_3.pack_propagate(False)
         buttons_row1 = ["检测游戏窗口", "开始识别", "连续识别", "停止识别"]
         buttons_row2 = ["查看区域划分", "显示检测区域", "查看节点分布", "功能按钮"]
         buttons_row3 = ["精确检测区域", "理论坐标地图", "全图识别", "退出程序"]
@@ -173,7 +251,7 @@ class DashboardApp:
             button = ttk.Button(button_frame_1, text=text, width=12)
             button.pack(side="left", fill="x", expand=True, padx=5)
             if i == 0: button.config(command=self.detect_game_window)
-            elif i == 1: button.config(command=lambda: self.start_recognition(0.8))
+            elif i == 1: button.config(command=lambda: self.start_recognition(self.match_threshold))
             elif i == 2:
                 self.button3 = button
                 button.config(command=self.start_continuous_recognition)
@@ -187,6 +265,7 @@ class DashboardApp:
             if i == 0: button.config(command=self.visualize_regions)
             elif i == 1: button.config(command=self.visualize_plus_region)
             elif i == 2: button.config(command=self.visualize_all_nodes)
+            elif i == 3: button.config(command=lambda: None)  # 功能按钮，暂时为空
         for i, text in enumerate(buttons_row3):
             button = ttk.Button(button_frame_3, text=text, width=12)
             button.pack(side="left", fill="x", expand=True, padx=5)
@@ -237,6 +316,13 @@ class DashboardApp:
         self.info_text.insert(tk.END, message + "\n", tag)
         self.info_text.see(tk.END)
         self.info_text.config(state='disabled')
+
+    def clear_info_panel(self):
+        """清空信息显示面板的全部信息"""
+        self.info_text.config(state='normal')
+        self.info_text.delete(1.0, tk.END)
+        self.info_text.config(state='disabled')
+        self.log_message("[信息] 信息面板已清空。", "h_default")
 
     def log_game_events(self, events: List[GameEvent]):
         self.info_text.config(state='normal')
@@ -329,7 +415,7 @@ class DashboardApp:
         if not self.app_state.locked_regions:
             self.log_message("[信息] 正在尝试自动锁定初始分区...")
             try:
-                regions = self.app_state.game_analyzer.get_player_regions(screenshot)
+                regions = self.app_state.game_analyzer.get_player_regions(screenshot, nms_threshold=self.nms_threshold)
                 if not regions or len(regions) < 5:
                     self.log_message("[警告] 未能计算出完整的5个区域...", "p_red")
                 else:
@@ -350,7 +436,7 @@ class DashboardApp:
             board_image = screenshot
 
         try:
-            report = self.app_state.game_analyzer.analyze_screenshot(board_image, match_threshold=threshold)
+            report = self.app_state.game_analyzer.analyze_screenshot(board_image, match_threshold=threshold, nms_threshold=self.nms_threshold)
             self.log_to_dashboard(report, recognition_id=recognition_id)
         except Exception as e:
             self.log_message(f"[严重错误] 分析时出错: {e}", "p_red")
@@ -389,7 +475,7 @@ class DashboardApp:
             try:
                 # 使用与按钮2相同的识别方法和时间戳格式
                 recognition_id = time.strftime("%Y%m%d%H%M-%S")
-                report = self.app_state.game_analyzer.analyze_screenshot(board_image, 0.8)
+                report = self.app_state.game_analyzer.analyze_screenshot(board_image, match_threshold=self.match_threshold, nms_threshold=self.nms_threshold)
 
                 # 使用相同的日志输出格式
                 self.root.after(0, self.log_to_dashboard, report, recognition_id)
@@ -416,7 +502,7 @@ class DashboardApp:
             regions = self.app_state.locked_regions
             if not regions:
                 self.log_message("[信息] 未找到已锁定的分区，将重新计算。")
-                regions = self.app_state.game_analyzer.get_player_regions(screenshot)
+                regions = self.app_state.game_analyzer.get_player_regions(screenshot, nms_threshold=self.nms_threshold)
             
             if not regions:
                 self.log_message("[错误] 无法获取分区信息。", "p_red")

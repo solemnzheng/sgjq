@@ -117,7 +117,7 @@ class GameAnalyzer:
         }
         self.pool = Pool(processes=cpu_count())
 
-    def analyze_screenshot(self, screenshot: np.ndarray, match_threshold: float = 0.7, return_detections: bool = False) -> Any:
+    def analyze_screenshot(self, screenshot: np.ndarray, match_threshold: float = 0.7, return_detections: bool = False, nms_threshold: float = 0.3) -> Any:
         templates_by_color: Dict[str, List] = {}
         for t in self.templates_manager.get_all_templates():
             if t.piece_type == "xingying": continue
@@ -128,7 +128,7 @@ class GameAnalyzer:
 
         results_from_pool = self.pool.map(_parallel_worker, tasks)
         all_matches = [item for sublist in results_from_pool for item in sublist]
-        detections = standard_non_max_suppression(all_matches, iou_threshold=0.3)
+        detections = standard_non_max_suppression(all_matches, iou_threshold=nms_threshold)
 
         if return_detections:
             return detections
@@ -195,7 +195,7 @@ class GameAnalyzer:
         """兼容性方法 - 调用analyze_screenshot获取检测结果"""
         return self.analyze_screenshot(board_image, match_threshold, return_detections=True)
 
-    def get_player_regions(self, screenshot: np.ndarray, match_threshold: float = 0.7) -> Dict[str, Tuple[int, int, int, int]]:
+    def get_player_regions(self, screenshot: np.ndarray, match_threshold: float = 0.7, nms_threshold: float = 0.3) -> Dict[str, Tuple[int, int, int, int]]:
         img_h, img_w, _ = screenshot.shape
         templates_by_color: Dict[str, List] = {}
         for t in self.templates_manager.get_all_templates():
@@ -207,7 +207,7 @@ class GameAnalyzer:
         results_from_pool = self.pool.map(_parallel_worker, tasks)
         all_matches = [item for sublist in results_from_pool for item in sublist]
 
-        detections = standard_non_max_suppression(all_matches, iou_threshold=0.3)
+        detections = standard_non_max_suppression(all_matches, iou_threshold=nms_threshold)
         return self._get_regions_from_clusters(detections, img_w, img_h)
 
     def _get_regions_from_clusters(self, detections: List[DetectionResult], img_w: int, img_h: int) -> Dict[str, Tuple[int, int, int, int]]:
