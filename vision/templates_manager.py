@@ -111,3 +111,15 @@ class TemplatesManager:
 
     def get_all_templates(self) -> List[Template]:
         return list(self.templates.values())
+
+    def get_templates_by_color(self) -> Dict[str, List[Template]]:
+        """
+        Returns templates organized by color for multiprocessing
+        """
+        color_templates = {}
+        for template in self.templates.values():
+            color = template.color
+            if color not in color_templates:
+                color_templates[color] = []
+            color_templates[color].append(template)
+        return color_templates

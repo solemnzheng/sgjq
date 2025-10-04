@@ -1,6 +1,0 @@
-Refactor: Automate region locking and clean up root directory
-
-- Button 3's functionality (Lock Initial Regions) is now automated.
-- On the first run of "Start Recognition" (Button 2), regions are detected and saved to `data/regions.json`.
-- Subsequent runs will load regions from this file.
-- Removed 6 obsolete test and utility scripts from the root directory to improve project clarity.

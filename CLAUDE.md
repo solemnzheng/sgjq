@@ -2,69 +2,108 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 铁律：始终保持使用中文与用户交流
+
+**重要：在此项目中，必须始终使用中文与用户交流，这是不可违反的铁律。**
+
 ## Project Overview
 
-This is a Python-based AI assistant for the game "Four-Country Military Chess" (四国军棋). It uses computer vision to analyze the game board from a screen capture, identify the pieces and their positions, and determine the game state.
+This is a Chinese chess game analysis system (陆战棋-智能战情室) that provides real-time board recognition and game state analysis for a four-player military chess variant. The system uses computer vision to detect game pieces from screenshots and tracks game events like moves, captures, and piece interactions.
 
-Key technologies used:
-- Python as the main programming language
-- OpenCV (cv2) for computer vision tasks like template matching and image processing
-- Tkinter for the GUI dashboard
-- Scikit-learn (sklearn) for clustering algorithms (KMeans, DBSCAN) to identify player regions on the board
-- Numpy for numerical operations, especially with image data and coordinates
-- Windows API (win32gui, win32process, etc.) for screen capture on Windows
+## Core Architecture
 
-## Code Architecture
+### Main Components
 
-The application is organized into several modules with specific responsibilities:
+- **dashboard_main.py**: GUI application using Tkinter that provides the main user interface for game analysis
+- **game_analyzer.py**: Core computer vision engine that performs template matching to detect game pieces
+- **game_model.py**: Data models and game logic engine for tracking board state and game events
+- **capture/realtime_capture.py**: Windows-specific screen capture module for grabbing game screenshots
+- **vision/templates_manager.py**: Template management system for loading and managing piece detection templates
 
-1. **Dashboard GUI** (`dashboard_main.py`): Main GUI application with Tkinter interface for controlling the analysis
-2. **Game Analysis** (`game_analyzer.py`): Core game state analysis, piece detection, and reporting
-3. **Screen Capture** (`capture/realtime_capture.py`): Handles capturing screenshots of the game window
-4. **Template Management** (`vision/templates_manager.py`): Manages the template images used for piece detection
-5. **Vision Utilities** (`vision/` directory): Additional computer vision utilities and algorithms
+### Data Flow
 
-The application works by:
-1. Calibrating to find the game window using Windows API
-2. Capturing screenshots of the game board
-3. Using template matching with pre-defined images to locate pieces
-4. Analyzing detected pieces to determine player regions and game state
-5. Displaying results in a GUI dashboard
+1. Window detection identifies the game window (JunQiRpg.exe with "四国军棋" in title)
+2. Real-time screenshot capture grabs game board images
+3. Template matching detects game pieces using OpenCV
+4. Region locking maps pieces to player areas (上方, 下方, 左侧, 右侧, 中央)
+5. State tracking compares consecutive board states to identify game events
+6. GUI displays real-time analysis and game event logs
 
 ## Development Commands
 
-### Environment Setup
-
-Install required packages:
-```bash
-pip install opencv-python-headless typer scikit-learn numpy pynput rich pywin32 psutil
-```
-
 ### Running the Application
 
-1. Start the GUI dashboard:
 ```bash
 python dashboard_main.py
 ```
 
-2. Within the GUI:
-   - Click "1. 检测游戏窗口" to detect the game window
-   - Click "2. 开始识别" to start recognition
-   - Click "3. 锁定初始分区" to lock initial regions
-   - Use other buttons for visualization features
+### Dependencies
 
-### Testing
+The system requires these main Python packages:
+- tkinter (GUI)
+- cv2 (OpenCV for computer vision)
+- numpy (array operations)
+- sklearn (KMeans clustering)
+- win32gui/win32api (Windows API for screen capture)
+- multiprocessing (parallel template matching)
 
-Run the analyzer test script:
-```bash
-python test_analyzer.py
-```
-(Note: Requires 1.png and 2.png test images in the root directory)
+### Template Files
+
+Game piece templates are stored in `vision/new_templates/` with naming convention:
+`{color}_{piece}_{position}_{index}.png`
+
+Example: `blue_commander_horizontal_1.png`
+
+Special template: `template_xingying.png` for camp detection
 
 ## Key Implementation Details
 
-- Piece detection uses HSV color masking combined with template matching for robust recognition
-- Player regions are identified using KMeans clustering of detected piece positions
-- Central region is calculated based on the positions of the four player regions
-- Non-maximum suppression is used to eliminate duplicate detections
-- All coordinates are mapped to logical grid positions using coordinate mapping
+### Multiprocessing Architecture
+
+The template matching uses multiprocessing with a static top-level function `parallel_find_matches_static()` to avoid pickling issues when passing objects between processes.
+
+### Region Detection
+
+The system automatically detects 5 regions:
+- 4 player regions (上方, 下方, 左侧, 右侧)
+- 中央 (center playing area)
+
+Region coordinates are cached in `data/regions.json` after first detection.
+
+### Game Logic
+
+- Piece ranking system with military hierarchy (司令=10, 军长=9, etc.)
+- Alliance relationships: 上方↔下方 vs 左侧↔右侧
+- Event detection: moves, captures, trades, bomb explosions, landmine hits
+
+### Error Handling
+
+Known multiprocessing pickling issue is resolved in line 85 of game_analyzer.py by using the static function approach.
+
+## File Structure
+
+```
+E:\SGJQ_CC\
+├── dashboard_main.py          # Main GUI application
+├── game_analyzer.py           # Computer vision engine
+├── game_model.py              # Data models and game logic
+├── capture/
+│   ├── realtime_capture.py    # Windows screen capture
+│   └── __init__.py
+├── vision/
+│   ├── templates_manager.py   # Template management
+│   ├── detect.py             # Detection utilities
+│   ├── utils.py              # Vision utilities
+│   └── __init__.py
+├── data/
+│   └── regions.json          # Cached region coordinates
+└── vision/new_templates/      # Piece detection templates
+```
+
+## Development Notes
+
+- The system targets Windows specifically due to win32 API dependencies
+- Template matching threshold default is 0.8 but can be adjusted
+- The GUI supports both single recognition and continuous monitoring modes
+- All piece tracking uses unique IDs generated by color and piece type
+- Board coordinates use (row, col) system relative to detected regions
